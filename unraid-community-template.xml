@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>StandUpOrderGenerator</Name>
+  <Repository>rtippenhauer/standup-order-generator:latest</Repository>
+  <Registry>https://hub.docker.com/r/rtippenhauer/standup-order-generator</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Overview>Stand-Up Order Generator — randomize daily stand-up order for development teams with multi-pod support, keyboard navigation, per-person timers, a daily facts panel, and one-click screenshot to Teams.</Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+
+  <Config
+    Name="WebUI Port"
+    Target="8080"
+    Default="8080"
+    Mode="tcp"
+    Description="Port the web interface is available on."
+    Type="Port"
+    Display="always"
+    Required="true"
+    Mask="false">8080</Config>
+
+  <Config
+    Name="Data Path"
+    Target="/data"
+    Default="/mnt/user/appdata/standup"
+    Mode="rw"
+    Description="Persistent storage for settings, session logs, and facts cache."
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false">/mnt/user/appdata/standup</Config>
+
+  <Config
+    Name="PUID"
+    Target="PUID"
+    Default="99"
+    Mode=""
+    Description="User ID for file ownership. Use 99 for Unraid nobody user."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false">99</Config>
+
+  <Config
+    Name="PGID"
+    Target="PGID"
+    Default="100"
+    Mode=""
+    Description="Group ID for file ownership. Use 100 for Unraid users group."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false">100</Config>
+
+  <Config
+    Name="TZ"
+    Target="TZ"
+    Default="America/New_York"
+    Mode=""
+    Description="Timezone for date and time display."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false">America/New_York</Config>
+
+  <Config
+    Name="ANTHROPIC_API_KEY"
+    Target="ANTHROPIC_API_KEY"
+    Default=""
+    Mode=""
+    Description="Optional Anthropic API key for AI-powered daily facts. Leave blank — app works without it."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"></Config>
+
+</Container>

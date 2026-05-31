@@ -1,0 +1,28 @@
+services:
+  standup:
+    build: .
+    container_name: standup-order-generator
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ${DATA_PATH:-./data}:/data
+    environment:
+      # User/group IDs for file ownership (match your host user)
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # Timezone
+      - TZ=${TZ:-America/New_York}
+      # Port the app listens on (inside container, always 8080)
+      - PORT=8080
+      # Path to data directory inside container
+      - DATA_PATH=/data
+      # Optional: Anthropic API key for AI-powered daily facts panel
+      # If not set, the facts panel will skip AI-generated content
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/settings')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
