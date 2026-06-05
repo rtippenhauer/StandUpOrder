@@ -29,7 +29,7 @@ COPY --from=frontend-build /build/dist ./frontend/dist
 
 # Entrypoint script (handles PUID/PGID)
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Create data directory
 RUN mkdir -p /data && chmod 777 /data
@@ -37,4 +37,4 @@ RUN mkdir -p /data && chmod 777 /data
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "-u", "backend/main.py"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080"]

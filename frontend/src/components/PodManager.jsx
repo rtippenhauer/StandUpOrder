@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { api } from '../api.js'
 
-export default function PodManager({ pods: initialPods, people: initialPeople, onClose }) {
+
+export default function PodManager({ pods: initialPods, people: initialPeople, onClose, teamApi: api }) {
   const [pods, setPods] = useState(initialPods)
   const [people, setPeople] = useState(initialPeople)
   const [newPodName, setNewPodName] = useState('')

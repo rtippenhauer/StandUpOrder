@@ -1,108 +1,190 @@
 # Stand-Up Order Generator
 
-A web-based daily stand-up order randomizer for development teams, designed to run in Docker on Unraid (or anywhere else).
-
-## Features
-
-- **Multi-Pod support** — manage multiple teams from one install; switch mid-session
-- **Numbered tiles** — each person's shuffled position is prominent and screenshot-ready
-- **Keyboard navigation** — Space or → to advance the current speaker highlight
-- **Per-person timer** — configurable countdown (default 2 min), advisory only
-- **Remove from session** — ✕ on any tile removes them today; Add Back via menu
-- **Session date picker** — preview any future date's lineup with time-off applied
-- **Daily facts panel** — National Days (nationaltoday.com), On This Day, Famous Birthdays, Fun Trivia
-- **Screenshot** — renders tile grid + facts strip to PNG; copy to clipboard or download for Teams
-- **Holiday themes** — auto-selects color palette near upcoming holidays (Halloween, Christmas, Summer Solstice, Easter, and more)
-- **Auth gate** — username/password protects all management features; main stand-up view stays public
-- **Time Off Calendar** — monthly calendar showing who's out, click any day for details
-- **ADP PDF import** — upload "My Team Time Off Request" PDF; auto-matches names (Gabriel→Gabe, Zachary→Zach, etc.)
-- **Manual time off** — add anyone not in ADP with start date + workday count (skips weekends and US holidays)
-- **US holiday calendar** — MLK Day, Memorial Day, July 4th, Labor Day, Thanksgiving, Christmas, etc.
-- **Session log** — every shuffle is logged to `standup_log.json`
-- **Backward compatible** — auto-migrates old integer group ID settings
+Randomizes daily stand-up speaking order for multiple teams. Hosted in Docker, shared via URL.
 
 ## Quick Start
 
-### Docker Compose
-
 ```bash
-cp .env.example .env    # edit if needed
-docker compose up -d
-# Open http://localhost:8080
+cp .env.example .env
+# Fill in GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, BASE_URL, SUPER_ADMIN_EMAIL
+docker compose up -d --build
 ```
 
-On first launch you'll be prompted to create an admin account.
+---
 
-### Environment Variables
+## Google OAuth Setup (Required)
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | Host port to expose |
-| `DATA_PATH` | `./data` | Host path for persistent data |
-| `PUID` | `1000` | User ID for file ownership |
-| `PGID` | `1000` | Group ID for file ownership |
-| `TZ` | `America/New_York` | Timezone |
+You need a Google Cloud project with OAuth credentials before the app will allow anyone to sign in.
 
-## Unraid
+### Step 1 — Create a Google Cloud Project
 
-Use `unraid-community-template.xml` to import the container template.
-Image: `rtippenhauer/standup-order-generator:latest`
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Click the project dropdown at the top → **New Project**
+3. Name it (e.g. `StandUp`) → **Create**
+4. Make sure the new project is selected in the dropdown
+
+### Step 2 — Enable the People / UserInfo API
+
+1. In the left sidebar → **APIs & Services** → **Enabled APIs & Services**
+2. Click **+ Enable APIs and Services**
+3. Search for `Google People API` → click it → **Enable**
+   - (The basic email/profile scope works without this, but enabling it is best practice)
+
+### Step 3 — Configure the OAuth Consent Screen
+
+1. Left sidebar → **APIs & Services** → **OAuth consent screen**
+2. Select **External** → **Create**
+3. Fill in:
+   - **App name**: `Stand-Up Order Generator` (or any name)
+   - **User support email**: your Gmail
+   - **Developer contact email**: your Gmail
+4. Click **Save and Continue** through Scopes (no extra scopes needed — email + profile are included by default)
+5. On **Test users**: click **+ Add Users** and add:
+   - `rtippenhauer@gmail.com` (your super admin account)
+   - Any other Gmail accounts you want to invite as managers
+   > ⚠️ While the app is in "Testing" mode, only listed test users can sign in. You can add more later or publish the app.
+6. **Save and Continue** → **Back to Dashboard**
+
+### Step 4 — Create OAuth 2.0 Credentials
+
+1. Left sidebar → **APIs & Services** → **Credentials**
+2. Click **+ Create Credentials** → **OAuth client ID**
+3. Application type: **Web application**
+4. Name: `StandUp App`
+5. Under **Authorized redirect URIs**, click **+ Add URI** and enter:
+   ```
+   https://standup.rtippenhauer.com/api/auth/callback
+   ```
+   Replace with your actual `BASE_URL`. If testing locally:
+   ```
+   http://localhost:8080/api/auth/callback
+   ```
+   > You can add both. Google allows multiple redirect URIs.
+6. Click **Create**
+7. A popup shows your **Client ID** and **Client Secret** — copy both immediately
+
+### Step 5 — Configure Environment Variables
+
+In your `.env` file (or Unraid template):
+
+```env
+GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-your-secret-here
+BASE_URL=https://standup.rtippenhauer.com
+SUPER_ADMIN_EMAIL=rtippenhauer@gmail.com
+SECRET_KEY=generate-with-python-below
+```
+
+Generate a `SECRET_KEY`:
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+### Step 6 — Deploy and Verify
+
+```bash
+docker compose up -d --build
+```
+
+1. Open `https://standup.rtippenhauer.com` — you should see the team selector
+2. Navigate to `/admin` — it will prompt you to sign in with Google
+3. Sign in with `rtippenhauer@gmail.com`
+4. You're in the Super Admin panel
+
+---
+
+## Architecture
+
+### URL Structure
+
+| URL | Access |
+|-----|--------|
+| `/` | Public — team selector |
+| `/team/{slug}` | Public — run stand-up (no login required) |
+| `/team/{slug}` + signed in as manager | Full manage access |
+| `/admin` | Super admin only |
+| `/invite/{token}` | Invite acceptance flow |
+
+### Teams
+
+Default teams: `ndt`, `qmanage`, `release`, `mobile`
+
+Each team has isolated data at `/data/teams/{slug}/`. The super admin can create more teams from `/admin`.
+
+### Adding Managers
+
+1. Go to `/admin`
+2. Find the team → click **+ Invite Manager**
+3. An invite URL is generated and copied to clipboard (valid 48 hours)
+4. Send the URL via Teams/Slack/email
+5. Recipient clicks link → signs in with Google → auto-authorized for that team
+
+### Data Migration
+
+Existing data in `/data/settings.json`, `timeoff.json`, etc. is automatically migrated to `/data/teams/ndt/` on first startup. Original files are renamed to `.migrated` for safety.
+
+---
+
+## Data Structure
+
+```
+/data/
+  teams/
+    _global/
+      teams.json        # team registry
+      invites.json      # invite tokens
+    ndt/
+      settings.json     # pods, people, timers, theme
+      timeoff.json
+      timeoff_entries.json
+      facts_cache.json
+      standup_log.json
+    qmanage/
+      settings.json
+      ...
+    release/  ...
+    mobile/   ...
+```
+
+---
+
+## Deployment on Unraid
+
+1. In Community Applications, install via the template or add manually
+2. Required template fields:
+   - **Google Client ID** — from Google Cloud Console
+   - **Google Client Secret** — from Google Cloud Console
+   - **Base URL** — your external URL (e.g. `https://standup.rtippenhauer.com`)
+   - **Super Admin Email** — your Gmail address
+3. Recommended: set **Session Secret Key** to a fixed random value so sessions survive container restarts
+4. Map `/data` to `/mnt/user/appdata/standup`
+5. **Port**: default 8080, map to 8081 if 8080 is taken
+
+---
 
 ## Development
 
-### Backend (FastAPI + Python 3.12)
-
 ```bash
-cd backend
-pip install -r requirements.txt
-DATA_PATH=./data python main.py
+# Backend only (hot swap)
+docker cp backend/main.py standup-order-generator:/app/backend/main.py
+docker restart standup-order-generator
+
+# Frontend changes (always requires full rebuild)
+docker compose down
+docker rmi standup-standup
+docker compose up -d --build --no-cache
 ```
 
-### Frontend (React + Vite + Tailwind)
+### Local Development Without Google OAuth
 
-```bash
-cd frontend
-npm install
-npm run dev    # proxies /api to localhost:8080
-```
+For local dev, you can test the viewer flow (no login) immediately. For the management flow, you need valid OAuth credentials with `http://localhost:8080/api/auth/callback` as an authorized redirect URI.
 
-### Build & Push
-
-```bash
-docker compose build --no-cache
-docker build -t rtippenhauer/standup-order-generator:latest .
-docker push rtippenhauer/standup-order-generator:latest
-```
-
-## Data Files
-
-All state lives in `DATA_PATH` (default `./data`):
-
-| File | Contents |
-|---|---|
-| `settings.json` | Pods, people, assignments, users, app config |
-| `timeoff.json` | Auto-remove schedule (rebuilt from entries) |
-| `timeoff_entries.json` | Full time-off entry metadata |
-| `standup_log.json` | Append-only session history |
-| `facts_cache.json` | Daily facts cache (multi-date, per-date key) |
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|---|---|
-| `Space` or `→` | Advance to next speaker |
-| `✕` on tile | Remove person from today's session |
-
-## ADP Time Off Import
-
-1. In ADP: **My Team → Reports & Analytics → My Team Time Off Request**
-2. Run report, download PDF
-3. In app: **⚙️ Manage → Import ADP PDF**
-4. Upload PDF — names are auto-matched (nicknames resolved automatically)
-5. Confirm and save — entries appear in the Time Off Calendar immediately
+---
 
 ## Tech Stack
 
-- **Backend**: FastAPI, Python 3.12, pdfplumber, bcrypt
+- **Backend**: FastAPI, Python 3.12, authlib, itsdangerous, httpx
 - **Frontend**: React 18, Vite, Tailwind CSS
-- **Container**: Docker multi-stage build, PUID/PGID support (linuxserver.io pattern)
+- **Auth**: Google OAuth 2.0, HTTP-only signed session cookies (8hr)
+- **Container**: Docker multi-stage build, PUID/PGID support
+- **Hosting**: Unraid (Community Applications template included)

@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { timeOffApi } from '../api.js'
+
 
 const STATUS_COLORS = {
   matched: 'text-green-400',
   unmatched: 'text-amber-400',
 }
 
-export default function TimeOffModal({ onClose, onSaved }) {
+export default function TimeOffModal({ onClose, onSaved, teamApi }) {
   const [step, setStep] = useState('upload') // upload | review | saved
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -20,7 +20,7 @@ export default function TimeOffModal({ onClose, onSaved }) {
     setLoading(true)
     setError(null)
     try {
-      const result = await timeOffApi.parsePdf(file)
+      const result = await teamApi.timeoff.parsePdf(file)
       setEntries(result.entries)
       setRoster(result.roster)
       setStep('review')
@@ -52,7 +52,7 @@ export default function TimeOffModal({ onClose, onSaved }) {
         }
       }
       if (Object.keys(newMappings).length > 0) {
-        await timeOffApi.saveNameMap(newMappings)
+        await teamApi.timeoff.saveNameMap(newMappings)
       }
 
       // Resolve final names and import as entries (creates timeoff_entries.json records)
@@ -60,7 +60,7 @@ export default function TimeOffModal({ onClose, onSaved }) {
         .map(e => ({ ...e, roster_name: resolvedName(e) }))
         .filter(e => e.roster_name && e.roster_name !== '__skip__')
 
-      await timeOffApi.importAdp(resolved)
+      await teamApi.timeoff.importAdp(resolved)
       setStep('saved')
       onSaved()
     } catch (err) {

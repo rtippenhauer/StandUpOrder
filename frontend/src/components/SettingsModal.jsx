@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { api } from '../api.js'
 
-export default function SettingsModal({ settings, themes, onClose }) {
+
+export default function SettingsModal({ settings, themes, onClose, teamApi: api }) {
   const [values, setValues] = useState({
     timer_minutes: settings?.timer_minutes ?? 2,
     timer_enabled: settings?.timer_enabled ?? true,

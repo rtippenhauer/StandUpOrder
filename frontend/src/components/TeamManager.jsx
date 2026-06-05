@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { api } from '../api.js'
 
-export default function TeamManager({ people: initialPeople, pods, onClose }) {
+
+export default function TeamManager({ people: initialPeople, pods, onClose, teamApi: api }) {
   const [people, setPeople] = useState(initialPeople)
   const [newName, setNewName] = useState('')
   const [editingName, setEditingName] = useState(null) // original name being edited

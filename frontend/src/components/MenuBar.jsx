@@ -2,12 +2,14 @@ import { useState, useRef, useEffect } from 'react'
 
 export default function MenuBar({
   activePodName, pods, activePodId, onSwitchPod,
+  teamName,
   onReshuffle, onScreenshot, onToggleFacts, showFacts, onAdvance,
   sessionDate, onSessionDateChange, isToday,
-  authedUser, onLogin, onLogout,
+  authUser, canManage, onLogin, onLogout,
   removedCount,
   onAddBack, onManageTeam, onManagePods, onSettings,
-  onTimeOff, onCalendar, onUserMgmt,
+  onTimeOff, onCalendar, onHome,
+  slug,
 }) {
   const podList = Object.entries(pods)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -26,7 +28,10 @@ export default function MenuBar({
 
   return (
     <header className="flex items-center gap-2 px-4 py-2 bg-slate-800 border-b border-slate-700 flex-wrap">
-      <span className="font-bold text-lg text-white mr-1 whitespace-nowrap">🗓️ Stand-Up</span>
+      <button onClick={onHome} className="font-bold text-lg text-white mr-1 whitespace-nowrap hover:text-blue-300 transition-colors">
+        🗓️ Stand-Up
+      </button>
+      {teamName && <span className="text-slate-500 text-sm">/ {teamName}</span>}
 
       {podList.length > 1 && (
         <select
@@ -86,45 +91,59 @@ export default function MenuBar({
               </>
             )}
 
-            <div className="px-3 py-1 text-xs text-slate-500 uppercase tracking-wide">Team</div>
-            <button onClick={() => menuAction(onManageTeam)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
-              👥 Team Members
-            </button>
-            <button onClick={() => menuAction(onManagePods)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
-              🏷️ Pods
-            </button>
+            {canManage ? (
+              <>
+                <div className="px-3 py-1 text-xs text-slate-500 uppercase tracking-wide">Team</div>
+                <button onClick={() => menuAction(onManageTeam)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
+                  👥 Team Members
+                </button>
+                <button onClick={() => menuAction(onManagePods)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
+                  🏷️ Pods
+                </button>
 
-            <hr className="border-slate-600 my-1" />
-            <div className="px-3 py-1 text-xs text-slate-500 uppercase tracking-wide">Time Off</div>
-            <button onClick={() => menuAction(onCalendar)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
-              📆 Time Off Calendar
-            </button>
-            <button onClick={() => menuAction(onTimeOff)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
-              📋 Import ADP PDF
-            </button>
+                <hr className="border-slate-600 my-1" />
+                <div className="px-3 py-1 text-xs text-slate-500 uppercase tracking-wide">Time Off</div>
+                <button onClick={() => menuAction(onCalendar)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
+                  📆 Time Off Calendar
+                </button>
+                <button onClick={() => menuAction(onTimeOff)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
+                  📋 Import ADP PDF
+                </button>
 
-            <hr className="border-slate-600 my-1" />
-            <div className="px-3 py-1 text-xs text-slate-500 uppercase tracking-wide">App</div>
-            <button onClick={() => menuAction(onSettings)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
-              🔧 Settings
-            </button>
-            <button onClick={() => menuAction(onUserMgmt)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
-              👤 Users
-            </button>
+                <hr className="border-slate-600 my-1" />
+                <div className="px-3 py-1 text-xs text-slate-500 uppercase tracking-wide">App</div>
+                <button onClick={() => menuAction(onSettings)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700">
+                  🔧 Settings
+                </button>
 
-            <hr className="border-slate-600 my-1" />
-            {authedUser ? (
-              <button onClick={() => menuAction(onLogout)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:bg-slate-700">
-                🔓 Sign Out ({authedUser})
-              </button>
+                <hr className="border-slate-600 my-1" />
+                <button onClick={() => menuAction(onLogout)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:bg-slate-700">
+                  🔓 Sign Out ({authUser?.email?.split('@')[0]})
+                </button>
+              </>
             ) : (
-              <button onClick={() => menuAction(onLogin)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:bg-slate-700">
-                🔐 Sign In
-              </button>
+              <>
+                <div className="px-4 py-2 text-xs text-slate-500">Viewing as guest</div>
+                <hr className="border-slate-600 my-1" />
+                <button onClick={() => menuAction(onLogin)} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm text-blue-400 hover:bg-slate-700">
+                  <GoogleIcon /> Sign in to Manage
+                </button>
+              </>
             )}
           </div>
         )}
       </div>
     </header>
+  )
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="inline-block">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+    </svg>
   )
 }

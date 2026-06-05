@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { timeOffApi, api } from '../api.js'
+
 import ManualTimeOffModal from './ManualTimeOffModal.jsx'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -16,7 +16,7 @@ function personColor(name, roster) {
   return PERSON_COLORS[idx >= 0 ? idx % PERSON_COLORS.length : 0]
 }
 
-export default function TimeOffCalendar({ roster, onClose }) {
+export default function TimeOffCalendar({ roster, onClose, teamApi }) {
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth()) // 0-based
@@ -30,9 +30,9 @@ export default function TimeOffCalendar({ roster, onClose }) {
 
   async function loadAll() {
     const [sched, ents, hols] = await Promise.all([
-      timeOffApi.get().catch(() => ({})),
-      timeOffApi.getEntries().catch(() => []),
-      api.getHolidays(year).catch(() => ({ holidays: [] })),
+      teamApi.timeoff.get().catch(() => ({})),
+      teamApi.timeoff.getEntries().catch(() => []),
+      teamApi.getHolidays(year).catch(() => ({ holidays: [] })),
     ])
     setSchedule(sched)
     setEntries(ents)
@@ -64,7 +64,7 @@ export default function TimeOffCalendar({ roster, onClose }) {
   }
 
   async function deleteEntry(id) {
-    await timeOffApi.deleteEntry(id)
+    await teamApi.timeoff.deleteEntry(id)
     await loadAll()
     // Refresh selected day
     if (selectedDay) {
@@ -227,6 +227,7 @@ export default function TimeOffCalendar({ roster, onClose }) {
           defaultDate={selectedDay ? dateKey(selectedDay) : null}
           onClose={() => setShowAddModal(false)}
           onSaved={loadAll}
+          teamApi={teamApi}
         />
       )}
     </div>

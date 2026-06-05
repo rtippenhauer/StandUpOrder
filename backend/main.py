@@ -5,20 +5,26 @@ from datetime import date as date_type
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+import httpx
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile, File
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
-from auth import hash_password, verify_password, create_token, verify_token, revoke_token
 from facts import get_daily_facts
 from holidays import workdays_from, get_us_holidays
 from models import PodCreate, PersonCreate, PersonUpdate, SessionLogEntry, SettingsUpdate
+from oauth import (
+    COOKIE_NAME, SUPER_ADMIN_EMAIL,
+    create_session_cookie, decode_session_cookie,
+    is_super_admin, can_manage_team,
+    create_invite, get_valid_invite,
+)
 from session_log import append_session_log
-from settings_store import SettingsStore
+from team_store import TeamStore, validate_slug
 from timeoff import (
     load_timeoff, save_timeoff, get_out_today, get_out_on,
     load_entries, add_manual_entry, delete_entry, import_adp_entries,
@@ -27,7 +33,13 @@ from timeoff import (
 
 DATA_PATH = os.environ.get("DATA_PATH", "/data")
 PORT = int(os.environ.get("PORT", 8080))
-store = SettingsStore(DATA_PATH)
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+store = TeamStore(DATA_PATH)
+
+SESSION_MAX_AGE = 8 * 3600  # seconds
 
 
 @asynccontextmanager
@@ -37,154 +49,331 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Stand-Up Order Generator", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=True,
+)
 
 
-# ── Auth dependency ───────────────────────────────────────────────────────
+# ── Auth dependencies ─────────────────────────────────────────────────────
 
-def require_auth(authorization: str = Header(default=None)):
-    """Dependency that enforces auth IF users exist. If no users, open access."""
-    data = store.load()
-    users = data.get("users", [])
-    if not users:
-        return "setup"  # No users yet — open access for first-run setup
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    token = authorization.replace("Bearer ", "").strip()
-    username = verify_token(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return username
+def get_current_user(standup_session: Optional[str] = Cookie(default=None)) -> Optional[str]:
+    """Return email from session cookie, or None."""
+    if not standup_session:
+        return None
+    return decode_session_cookie(standup_session)
 
 
-# ── Auth routes ───────────────────────────────────────────────────────────
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class CreateUserRequest(BaseModel):
-    username: str
-    password: str
+def require_super_admin(email: Optional[str] = Depends(get_current_user)):
+    if not is_super_admin(email):
+        raise HTTPException(403, "Super admin required")
+    return email
 
 
-@app.get("/api/auth/status")
-async def auth_status():
-    data = store.load()
-    users = data.get("users", [])
-    return {"has_users": len(users) > 0, "usernames": [u["username"] for u in users]}
+def require_team_manager(slug: str, email: Optional[str] = Depends(get_current_user)):
+    """FastAPI dependency — use require_team_access(slug) instead for path params."""
+    if not can_manage_team(email, slug, store):
+        raise HTTPException(403, "Team manager access required")
+    return email
 
 
-@app.post("/api/auth/login")
-async def login(req: LoginRequest):
-    data = store.load()
-    users = data.get("users", [])
-    for user in users:
-        if user["username"] == req.username:
-            if verify_password(req.password, user["password_hash"]):
-                token = create_token(req.username)
-                return {"token": token, "username": req.username}
-    raise HTTPException(status_code=401, detail="Invalid username or password")
+def _team_auth(slug: str, email: Optional[str]) -> str:
+    """Check team manager access and return email."""
+    if not store.team_exists(slug):
+        raise HTTPException(404, f"Team '{slug}' not found")
+    if not can_manage_team(email, slug, store):
+        raise HTTPException(403, "Not authorized for this team")
+    return email
+
+
+def _team_exists(slug: str):
+    if not store.team_exists(slug):
+        raise HTTPException(404, f"Team '{slug}' not found")
+
+
+# ── Google OAuth ──────────────────────────────────────────────────────────
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+
+@app.get("/api/auth/login")
+async def google_login(request: Request, next: Optional[str] = None, invite: Optional[str] = None):
+    """Redirect to Google OAuth."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(503, "Google OAuth not configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET")
+
+    # Encode next/invite into state
+    state_parts = []
+    if next:
+        state_parts.append(f"next={next}")
+    if invite:
+        state_parts.append(f"invite={invite}")
+    state = "&".join(state_parts) if state_parts else "none"
+
+    redirect_uri = f"{BASE_URL}/api/auth/callback"
+    params = (
+        f"client_id={GOOGLE_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope=openid email profile"
+        f"&state={state}"
+        f"&access_type=online"
+        f"&prompt=select_account"
+    )
+    return RedirectResponse(f"{GOOGLE_AUTH_URL}?{params}")
+
+
+@app.get("/api/auth/callback")
+async def google_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    """Google OAuth callback — exchange code for tokens, set cookie."""
+    if error:
+        return RedirectResponse(f"/?auth_error={error}")
+    if not code:
+        return RedirectResponse("/?auth_error=missing_code")
+
+    redirect_uri = f"{BASE_URL}/api/auth/callback"
+
+    # Exchange code for tokens
+    async with httpx.AsyncClient() as client:
+        try:
+            token_resp = await client.post(GOOGLE_TOKEN_URL, data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            })
+            token_resp.raise_for_status()
+            tokens = token_resp.json()
+
+            userinfo_resp = await client.get(GOOGLE_USERINFO_URL, headers={
+                "Authorization": f"Bearer {tokens['access_token']}"
+            })
+            userinfo_resp.raise_for_status()
+            userinfo = userinfo_resp.json()
+        except Exception as e:
+            return RedirectResponse(f"/?auth_error=oauth_failed")
+
+    email = userinfo.get("email", "").lower().strip()
+    if not email:
+        return RedirectResponse("/?auth_error=no_email")
+
+    # Parse state for invite token / next URL
+    invite_token = None
+    next_url = "/"
+    if state and state != "none":
+        for part in state.split("&"):
+            if part.startswith("next="):
+                next_url = part[5:] or "/"
+            elif part.startswith("invite="):
+                invite_token = part[7:] or None
+
+    # Handle invite flow
+    if invite_token:
+        inv = get_valid_invite(invite_token, store)
+        if inv:
+            slug = inv["team_slug"]
+            store.add_manager(slug, email)
+            store.consume_invite(invite_token)
+            next_url = f"/team/{slug}"
+        else:
+            # Still log them in but redirect to error
+            next_url = "/?invite_error=invalid_or_expired"
+
+    # Set session cookie
+    session_val = create_session_cookie(email)
+    response = RedirectResponse(next_url)
+    response.set_cookie(
+        COOKIE_NAME,
+        session_val,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=BASE_URL.startswith("https://"),
+    )
+    return response
 
 
 @app.post("/api/auth/logout")
-async def logout(authorization: str = Header(default=None)):
-    if authorization:
-        token = authorization.replace("Bearer ", "").strip()
-        revoke_token(token)
+async def logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE_NAME)
+    return response
+
+
+@app.get("/api/auth/me")
+async def auth_me(email: Optional[str] = Depends(get_current_user)):
+    if not email:
+        return {"authenticated": False, "email": None, "is_super_admin": False, "teams": []}
+
+    # Find which teams this user manages
+    managed_teams = []
+    for team in store.list_teams():
+        slug = team["slug"]
+        if is_super_admin(email) or store.is_manager(slug, email):
+            managed_teams.append(slug)
+
+    return {
+        "authenticated": True,
+        "email": email,
+        "is_super_admin": is_super_admin(email),
+        "teams": managed_teams,
+    }
+
+
+# ── Teams (super admin) ───────────────────────────────────────────────────
+
+@app.get("/api/teams")
+async def list_teams():
+    """Public — list all teams for navigation."""
+    return store.list_teams()
+
+
+@app.post("/api/teams", status_code=201)
+async def create_team_route(body: dict, email: str = Depends(require_super_admin)):
+    slug = body.get("slug", "").strip().lower()
+    name = body.get("name", "").strip()
+    if not slug or not name:
+        raise HTTPException(400, "slug and name required")
+    try:
+        team = store.create_team(slug, name)
+        return team
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/teams/{slug}")
+async def update_team_route(slug: str, body: dict, email: str = Depends(require_super_admin)):
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, "name required")
+    try:
+        return store.update_team(slug, name)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.delete("/api/teams/{slug}")
+async def delete_team_route(slug: str, email: str = Depends(require_super_admin)):
+    try:
+        store.delete_team(slug)
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+# ── Invites ───────────────────────────────────────────────────────────────
+
+@app.post("/api/teams/{slug}/invites")
+async def create_invite_route(slug: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    team = store.get_team(slug)
+    result = create_invite(slug, team["name"], email, store, BASE_URL)
+    return result
+
+
+@app.get("/api/teams/{slug}/invites")
+async def list_invites(slug: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    invites = [i for i in store.load_invites() if i.get("team_slug") == slug]
+    return invites
+
+
+@app.delete("/api/teams/{slug}/invites/{token}")
+async def revoke_invite_route(slug: str, token: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    if not store.revoke_invite(token):
+        raise HTTPException(404, "Invite not found")
     return {"ok": True}
 
 
-# ── User management ───────────────────────────────────────────────────────
+@app.get("/api/invites/{token}")
+async def get_invite_info(token: str):
+    """Public — get invite info before login (so UI can show team name)."""
+    inv = get_valid_invite(token, store)
+    if not inv:
+        raise HTTPException(404, "Invite not found or expired")
+    return {"team_slug": inv["team_slug"], "team_name": inv["team_name"]}
 
-@app.get("/api/users")
-async def get_users(_user: str = Depends(require_auth)):
-    data = store.load()
-    users = data.get("users", [])
-    return [{"username": u["username"]} for u in users]
+
+# ── Team managers ─────────────────────────────────────────────────────────
+
+@app.get("/api/teams/{slug}/managers")
+async def get_team_managers(slug: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    return {"managers": store.get_managers(slug)}
 
 
-@app.post("/api/users", status_code=201)
-async def create_user(req: CreateUserRequest, _user: str = Depends(require_auth)):
-    data = store.load()
-    users = data.setdefault("users", [])
-    if any(u["username"] == req.username for u in users):
-        raise HTTPException(400, "Username already exists")
-    users.append({"username": req.username, "password_hash": hash_password(req.password)})
-    store.save(data)
+@app.delete("/api/teams/{slug}/managers/{manager_email}")
+async def remove_team_manager(slug: str, manager_email: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    store.remove_manager(slug, manager_email)
     return {"ok": True}
 
 
-@app.put("/api/users/{username}")
-async def update_user_password(username: str, req: CreateUserRequest, _user: str = Depends(require_auth)):
-    data = store.load()
-    users = data.get("users", [])
-    for user in users:
-        if user["username"] == username:
-            user["password_hash"] = hash_password(req.password)
-            store.save(data)
-            return {"ok": True}
-    raise HTTPException(404, "User not found")
+# ── Team settings ─────────────────────────────────────────────────────────
+
+@app.get("/api/team/{slug}/settings")
+async def get_settings(slug: str):
+    """Public read."""
+    _team_exists(slug)
+    data = store.load_settings(slug)
+    # Don't expose internal fields publicly
+    safe = {k: v for k, v in data.items() if k not in ("users", "managers")}
+    return safe
 
 
-@app.delete("/api/users/{username}")
-async def delete_user(username: str, _user: str = Depends(require_auth)):
-    data = store.load()
-    users = data.get("users", [])
-    data["users"] = [u for u in users if u["username"] != username]
-    store.save(data)
-    return {"ok": True}
-
-
-# ── Settings ──────────────────────────────────────────────────────────────
-
-@app.get("/api/settings")
-async def get_settings():
-    return store.load()
-
-
-@app.patch("/api/settings")
-async def patch_settings(updates: SettingsUpdate, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.patch("/api/team/{slug}/settings")
+async def patch_settings(slug: str, updates: SettingsUpdate, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     data.update(updates.model_dump(exclude_none=True))
-    store.save(data)
+    store.save_settings(slug, data)
     return {"ok": True}
 
 
 # ── Pods ──────────────────────────────────────────────────────────────────
 
-@app.get("/api/pods")
-async def get_pods():
-    return store.load().get("pods", {})
+@app.get("/api/team/{slug}/pods")
+async def get_pods(slug: str):
+    _team_exists(slug)
+    return store.load_settings(slug).get("pods", {})
 
 
-@app.post("/api/pods", status_code=201)
-async def create_pod(pod: PodCreate, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.post("/api/team/{slug}/pods", status_code=201)
+async def create_pod(slug: str, pod: PodCreate, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     pods = data.setdefault("pods", {})
     n = len(pods) + 1
     while f"pod_{n}" in pods:
         n += 1
     pod_id = f"pod_{n}"
     pods[pod_id] = {"name": pod.name, "abbreviation": pod.abbreviation or pod.name[:4].upper()}
-    store.save(data)
+    store.save_settings(slug, data)
     return {"pod_id": pod_id, **pods[pod_id]}
 
 
-@app.put("/api/pods/{pod_id}")
-async def update_pod(pod_id: str, pod: PodCreate, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.put("/api/team/{slug}/pods/{pod_id}")
+async def update_pod(slug: str, pod_id: str, pod: PodCreate, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     if pod_id not in data.get("pods", {}):
         raise HTTPException(404, "Pod not found")
     data["pods"][pod_id] = {"name": pod.name, "abbreviation": pod.abbreviation or pod.name[:4].upper()}
-    store.save(data)
+    store.save_settings(slug, data)
     return {"ok": True}
 
 
-@app.delete("/api/pods/{pod_id}")
-async def delete_pod(pod_id: str, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.delete("/api/team/{slug}/pods/{pod_id}")
+async def delete_pod(slug: str, pod_id: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     if pod_id not in data.get("pods", {}):
         raise HTTPException(404, "Pod not found")
     del data["pods"][pod_id]
@@ -194,31 +383,34 @@ async def delete_pod(pod_id: str, _user: str = Depends(require_auth)):
     if data.get("default_pod") == pod_id:
         remaining = list(data["pods"].keys())
         data["default_pod"] = remaining[0] if remaining else None
-    store.save(data)
+    store.save_settings(slug, data)
     return {"ok": True}
 
 
 # ── People ────────────────────────────────────────────────────────────────
 
-@app.get("/api/people")
-async def get_people():
-    return store.load().get("people_groups", {})
+@app.get("/api/team/{slug}/people")
+async def get_people(slug: str):
+    _team_exists(slug)
+    return store.load_settings(slug).get("people_groups", {})
 
 
-@app.post("/api/people", status_code=201)
-async def create_person(person: PersonCreate, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.post("/api/team/{slug}/people", status_code=201)
+async def create_person(slug: str, person: PersonCreate, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     people = data.setdefault("people_groups", {})
     if person.name in people:
         raise HTTPException(400, "Person already exists")
     people[person.name] = person.pod_ids or []
-    store.save(data)
+    store.save_settings(slug, data)
     return {"ok": True}
 
 
-@app.put("/api/people/{name}")
-async def update_person(name: str, update: PersonUpdate, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.put("/api/team/{slug}/people/{name}")
+async def update_person(slug: str, name: str, update: PersonUpdate, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     people = data.get("people_groups", {})
     if name not in people:
         raise HTTPException(404, "Person not found")
@@ -226,37 +418,41 @@ async def update_person(name: str, update: PersonUpdate, _user: str = Depends(re
     del people[name]
     new_name = update.new_name if update.new_name else name
     people[new_name] = update.pod_ids if update.pod_ids is not None else current_pods
-    store.save(data)
+    store.save_settings(slug, data)
     return {"ok": True}
 
 
-@app.delete("/api/people/{name}")
-async def delete_person(name: str, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.delete("/api/team/{slug}/people/{name}")
+async def delete_person(slug: str, name: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     if name not in data.get("people_groups", {}):
         raise HTTPException(404, "Person not found")
     del data["people_groups"][name]
-    store.save(data)
+    store.save_settings(slug, data)
     return {"ok": True}
 
 
 # ── Facts ─────────────────────────────────────────────────────────────────
 
-@app.get("/api/facts")
-async def get_facts(date: Optional[str] = None):
+@app.get("/api/team/{slug}/facts")
+async def get_facts(slug: str, date: Optional[str] = None):
+    _team_exists(slug)
     try:
+        team_data_path = store.team_path(slug)
         target = date_type.fromisoformat(date) if date else None
-        return await get_daily_facts(DATA_PATH, target_date=target)
+        return await get_daily_facts(team_data_path, target_date=target)
     except Exception:
         return {"national_days": [], "on_this_day": [], "famous_birthdays": [], "fun_trivia": []}
 
 
 # ── Session Log ───────────────────────────────────────────────────────────
 
-@app.post("/api/session/log")
-async def log_session(entry: SessionLogEntry):
+@app.post("/api/team/{slug}/session/log")
+async def log_session(slug: str, entry: SessionLogEntry):
+    _team_exists(slug)
     try:
-        append_session_log(DATA_PATH, entry.model_dump())
+        append_session_log(store.team_path(slug), entry.model_dump())
     except RuntimeError as e:
         raise HTTPException(500, str(e))
     return {"ok": True}
@@ -264,36 +460,43 @@ async def log_session(entry: SessionLogEntry):
 
 # ── Time Off ──────────────────────────────────────────────────────────────
 
-@app.get("/api/timeoff")
-async def get_timeoff():
-    return load_timeoff(DATA_PATH)
+def _team_data(slug: str) -> str:
+    _team_exists(slug)
+    return store.team_path(slug)
 
 
-@app.get("/api/timeoff/today")
-async def get_timeoff_today():
-    return {"out": get_out_today(DATA_PATH)}
+@app.get("/api/team/{slug}/timeoff")
+async def get_timeoff(slug: str):
+    return load_timeoff(_team_data(slug))
 
 
-@app.get("/api/timeoff/on/{date_str}")
-async def get_timeoff_on(date_str: str):
+@app.get("/api/team/{slug}/timeoff/today")
+async def get_timeoff_today(slug: str):
+    return {"out": get_out_today(_team_data(slug))}
+
+
+@app.get("/api/team/{slug}/timeoff/on/{date_str}")
+async def get_timeoff_on(slug: str, date_str: str):
     try:
         d = date_type.fromisoformat(date_str)
-        return {"out": get_out_on(DATA_PATH, d)}
+        return {"out": get_out_on(_team_data(slug), d)}
     except ValueError:
         raise HTTPException(400, "Invalid date")
 
 
-@app.get("/api/timeoff/entries")
-async def get_entries(_user: str = Depends(require_auth)):
-    return load_entries(DATA_PATH)
+@app.get("/api/team/{slug}/timeoff/entries")
+async def get_entries(slug: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    return load_entries(_team_data(slug))
 
 
-@app.post("/api/timeoff/entries")
-async def add_entry(body: dict, _user: str = Depends(require_auth)):
+@app.post("/api/team/{slug}/timeoff/entries")
+async def add_entry(slug: str, body: dict, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
     try:
         start = date_type.fromisoformat(body["start_date"])
         entry = add_manual_entry(
-            DATA_PATH,
+            _team_data(slug),
             name=body["name"],
             start_date=start,
             num_days=int(body["num_days"]),
@@ -304,44 +507,45 @@ async def add_entry(body: dict, _user: str = Depends(require_auth)):
         raise HTTPException(400, str(e))
 
 
-@app.delete("/api/timeoff/entries/{entry_id}")
-async def remove_entry(entry_id: str, _user: str = Depends(require_auth)):
-    if not delete_entry(DATA_PATH, entry_id):
+@app.delete("/api/team/{slug}/timeoff/entries/{entry_id}")
+async def remove_entry(slug: str, entry_id: str, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    if not delete_entry(_team_data(slug), entry_id):
         raise HTTPException(404, "Entry not found")
     return {"ok": True}
 
 
-@app.get("/api/timeoff/calculate")
-async def calculate_workdays(start_date: str, num_days: int):
+@app.get("/api/team/{slug}/timeoff/calculate")
+async def calculate_workdays(slug: str, start_date: str, num_days: int):
+    _team_exists(slug)
     try:
         start = date_type.fromisoformat(start_date)
         days = workdays_from(start, num_days)
-        return {
-            "workdays": [d.isoformat() for d in days],
-            "end_date": days[-1].isoformat() if days else start_date,
-        }
+        return {"workdays": [d.isoformat() for d in days], "end_date": days[-1].isoformat() if days else start_date}
     except ValueError as e:
         raise HTTPException(400, str(e))
 
 
-@app.get("/api/holidays/{year}")
-async def get_holidays(year: int):
-    holidays = get_us_holidays(year)
-    return {"holidays": sorted(d.isoformat() for d in holidays)}
+@app.get("/api/team/{slug}/holidays/{year}")
+async def get_holidays(slug: str, year: int):
+    _team_exists(slug)
+    return {"holidays": sorted(d.isoformat() for d in get_us_holidays(year))}
 
 
-@app.put("/api/timeoff")
-async def save_timeoff_route(schedule: dict, _user: str = Depends(require_auth)):
-    save_timeoff(DATA_PATH, schedule)
+@app.put("/api/team/{slug}/timeoff")
+async def save_timeoff_route(slug: str, schedule: dict, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    save_timeoff(_team_data(slug), schedule)
     return {"ok": True}
 
 
-@app.post("/api/timeoff/parse-pdf")
-async def parse_timeoff_pdf(file: UploadFile = File(...), _user: str = Depends(require_auth)):
+@app.post("/api/team/{slug}/timeoff/parse-pdf")
+async def parse_timeoff_pdf(slug: str, file: UploadFile = File(...), email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
     try:
         pdf_bytes = await file.read()
         entries = parse_adp_pdf(pdf_bytes)
-        data = store.load()
+        data = store.load_settings(slug)
         roster = list(data.get("people_groups", {}).keys())
         adp_name_map = data.get("adp_name_map", {})
         matched = match_names(entries, roster, adp_name_map)
@@ -350,21 +554,40 @@ async def parse_timeoff_pdf(file: UploadFile = File(...), _user: str = Depends(r
         raise HTTPException(400, str(e))
 
 
-@app.post("/api/timeoff/save-name-map")
-async def save_name_map(mapping: dict, _user: str = Depends(require_auth)):
-    data = store.load()
+@app.post("/api/team/{slug}/timeoff/save-name-map")
+async def save_name_map(slug: str, mapping: dict, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
+    data = store.load_settings(slug)
     existing = data.get("adp_name_map", {})
     existing.update(mapping)
     data["adp_name_map"] = existing
-    store.save(data)
+    store.save_settings(slug, data)
     return {"ok": True}
 
 
-@app.post("/api/timeoff/import-adp")
-async def import_adp(body: dict, _user: str = Depends(require_auth)):
+@app.post("/api/team/{slug}/timeoff/import-adp")
+async def import_adp(slug: str, body: dict, email: Optional[str] = Depends(get_current_user)):
+    _team_auth(slug, email)
     entries = body.get("entries", [])
-    count = import_adp_entries(DATA_PATH, entries)
+    count = import_adp_entries(_team_data(slug), entries)
     return {"ok": True, "imported": count}
+
+
+# ── Shared utils (no team context) ───────────────────────────────────────
+
+@app.get("/api/holidays/{year}")
+async def get_holidays_global(year: int):
+    return {"holidays": sorted(d.isoformat() for d in get_us_holidays(year))}
+
+
+@app.get("/api/timeoff/calculate")
+async def calculate_workdays_global(start_date: str, num_days: int):
+    try:
+        start = date_type.fromisoformat(start_date)
+        days = workdays_from(start, num_days)
+        return {"workdays": [d.isoformat() for d in days], "end_date": days[-1].isoformat() if days else start_date}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 # ── Frontend SPA ──────────────────────────────────────────────────────────

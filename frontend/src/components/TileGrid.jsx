@@ -1,6 +1,6 @@
 import Tile from './Tile.jsx'
 
-export default function TileGrid({ tiles, timerMinutes, timerEnabled, onRemove }) {
+export default function TileGrid({ tiles, timerMinutes, timerEnabled, onRemove, onSendToBottom }) {
   return (
     <div
       id="tile-grid"
@@ -14,6 +14,8 @@ export default function TileGrid({ tiles, timerMinutes, timerEnabled, onRemove }
           timerMinutes={timerMinutes}
           timerEnabled={timerEnabled}
           onRemove={onRemove}
+          onSendToBottom={onSendToBottom}
+          isLast={tile.position === tiles.length}
         />
       ))}
     </div>

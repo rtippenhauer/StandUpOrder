@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { timeOffApi } from '../api.js'
 
-export default function ManualTimeOffModal({ roster, defaultDate, onClose, onSaved }) {
+
+export default function ManualTimeOffModal({ roster, defaultDate, onClose, onSaved, teamApi }) {
   const [name, setName] = useState(roster[0] ?? '')
   const [startDate, setStartDate] = useState(defaultDate || new Date().toISOString().split('T')[0])
   const [numDays, setNumDays] = useState(1)
@@ -12,7 +12,7 @@ export default function ManualTimeOffModal({ roster, defaultDate, onClose, onSav
 
   useEffect(() => {
     if (!startDate || !numDays || numDays < 1) return
-    timeOffApi.calculate(startDate, numDays)
+    teamApi.timeoff.calculate(startDate, numDays)
       .then(setPreview)
       .catch(() => setPreview(null))
   }, [startDate, numDays])
@@ -21,7 +21,7 @@ export default function ManualTimeOffModal({ roster, defaultDate, onClose, onSav
     if (!name || !startDate || !numDays) return
     setSaving(true); setError(null)
     try {
-      await timeOffApi.addEntry({ name, start_date: startDate, num_days: numDays, note })
+      await teamApi.timeoff.addEntry({ name, start_date: startDate, num_days: numDays, note })
       onSaved()
       onClose()
     } catch (e) {

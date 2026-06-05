@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 
-export default function Tile({ tile, timerMinutes, timerEnabled, onRemove }) {
+export default function Tile({ tile, timerMinutes, timerEnabled, onRemove, onSendToBottom, isLast }) {
   const { name, color, position, isActive, isOnDeck } = tile
 
   // Timer
@@ -54,6 +54,17 @@ export default function Tile({ tile, timerMinutes, timerEnabled, onRemove }) {
       >
         ✕
       </button>
+
+      {/* Send to bottom button — hidden when already last */}
+      {!isLast && (
+        <button
+          onClick={() => onSendToBottom(name)}
+          className="absolute top-1.5 right-9 w-6 h-6 rounded-full bg-black/30 hover:bg-black/60 text-white/70 hover:text-white text-xs flex items-center justify-center transition-colors"
+          title="Move to end of order (late arrival)"
+        >
+          ↓
+        </button>
+      )}
 
       {/* On Deck indicator */}
       {isOnDeck && (

@@ -17,11 +17,17 @@ services:
       - PORT=8080
       # Path to data directory inside container
       - DATA_PATH=/data
-      # Optional: Anthropic API key for AI-powered daily facts panel
-      # If not set, the facts panel will skip AI-generated content
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # ── Google OAuth (required) ───────────────────────────────────────
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # Public-facing base URL (no trailing slash) — used for OAuth redirect URI
+      - BASE_URL=${BASE_URL:-http://localhost:8080}
+      # Super admin Gmail address
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:-rtippenhauer@gmail.com}
+      # Session signing secret — auto-generated if not set (sessions survive restarts if set)
+      - SECRET_KEY=${SECRET_KEY:-}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/settings')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/teams')"]
       interval: 30s
       timeout: 10s
       retries: 3
