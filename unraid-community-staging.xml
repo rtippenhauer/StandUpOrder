@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>StandUpOrderGenerator</Name>
+  <Name>StandUpOrderGenerator-Stage</Name>
   <Repository>rtippenhauer/standup-order-generator:stage</Repository>
   <Registry>https://hub.docker.com/r/rtippenhauer/standup-order-generator</Registry>
   <Network>bridge</Network>
