@@ -6,7 +6,6 @@ export default function TeamSelectorPage() {
       <p className="text-slate-400 text-center max-w-sm">
         Please use your team's direct URL to access the app.
       </p>
-      <p className="text-slate-600 text-sm font-mono">example: /team/ndt</p>
     </div>
   )
 }

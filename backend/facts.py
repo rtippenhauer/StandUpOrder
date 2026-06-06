@@ -113,7 +113,7 @@ async def _fetch_national_today(today: date) -> list:
             desc = meta_match.group(1)
             # Strip the " — every observance..." suffix
             holidays_part = desc.split(' — ')[0] if ' — ' in desc else desc.split('.')[0]
-            items = re.split(r',\s*|\s+and\s+', holidays_part)
+            items = re.split(r',\s*and\s+|,\s*|\s+and\s+', holidays_part)
             for item in items:
                 item = item.strip().strip('.')
                 lower = item.lower()

@@ -22,7 +22,7 @@
   <DonateLink/>
   <Requires/>
 
-  <Config Name="WebUI Port" Target="8079" Default="8080" Mode="tcp" Description="Port for the web interface" Type="Port" Display="always" Required="true" Mask="false">8079</Config>
+  <Config Name="WebUI Port" Target="8080" Default="8079" Mode="tcp" Description="Port for the web interface" Type="Port" Display="always" Required="true" Mask="false">8079</Config>
 
   <Config Name="Data Path" Target="/data" Default="/mnt/user/appdata/standup/stage" Mode="rw" Description="Persistent storage for all team data, settings, and time-off records" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/standup/stage</Config>
 
@@ -30,7 +30,7 @@
 
   <Config Name="Google Client Secret" Target="GOOGLE_CLIENT_SECRET" Default="" Mode="" Description="OAuth 2.0 Client Secret from Google Cloud Console. Required for authentication." Type="Variable" Display="always" Required="true" Mask="true"></Config>
 
-  <Config Name="Base URL" Target="BASE_URL" Default="https://standup-stage.mydomain.com" Mode="" Description="Public-facing URL of the app (no trailing slash). Used for Google OAuth redirect. Example: https://standup.mydomain.com" Type="Variable" Display="always" Required="true" Mask="false">https://standup-stage.rtippenhauer.com/</Config>
+  <Config Name="Base URL" Target="BASE_URL" Default="https://standup-stage.mydomain.com" Mode="" Description="Public-facing URL of the app (no trailing slash). Used for Google OAuth redirect. Example: https://standup.mydomain.com" Type="Variable" Display="always" Required="true" Mask="false">https://standup-stage.rtippenhauer.com</Config>
 
   <Config Name="Super Admin Email" Target="SUPER_ADMIN_EMAIL" Default="" Mode="" Description="Gmail address of the super admin (you). Can create teams and manage all." Type="Variable" Display="always" Required="true" Mask="false"></Config>
 

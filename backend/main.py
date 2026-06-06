@@ -33,7 +33,7 @@ from timeoff import (
 
 DATA_PATH = os.environ.get("DATA_PATH", "/data")
 PORT = int(os.environ.get("PORT", 8080))
-BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080")
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080").rstrip("/")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 

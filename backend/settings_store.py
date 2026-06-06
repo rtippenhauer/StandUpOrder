@@ -16,6 +16,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "timer_enabled": True,
     "theme": "auto",
     "holiday_lead_days": 20,
+    "facts_national_days_count": 8,
+    "facts_on_this_day_count": 5,
+    "facts_birthdays_count": 5,
+    "facts_trivia_count": 3,
 }
 
 

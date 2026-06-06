@@ -403,7 +403,7 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
       />
 
       {showFactsPanel && facts && (
-        <FactsPanel facts={facts} onClose={() => setShowFactsPanel(false)} />
+        <FactsPanel facts={facts} settings={settings} onClose={() => setShowFactsPanel(false)} />
       )}
 
       <main className="flex-1 p-4">

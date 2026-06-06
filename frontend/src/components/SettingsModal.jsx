@@ -8,6 +8,10 @@ export default function SettingsModal({ settings, themes, onClose, teamApi: api 
     theme: settings?.theme ?? 'auto',
     holiday_lead_days: settings?.holiday_lead_days ?? 20,
     default_pod: settings?.default_pod ?? null,
+    facts_national_days_count: settings?.facts_national_days_count ?? 8,
+    facts_on_this_day_count: settings?.facts_on_this_day_count ?? 5,
+    facts_birthdays_count: settings?.facts_birthdays_count ?? 5,
+    facts_trivia_count: settings?.facts_trivia_count ?? 3,
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
@@ -94,6 +98,31 @@ export default function SettingsModal({ settings, themes, onClose, teamApi: api 
                 />
               </div>
             )}
+          </section>
+
+          {/* Daily Facts Counts */}
+          <section>
+            <h3 className="text-sm font-semibold text-slate-300 mb-3">Daily Facts — Items to Show</h3>
+            <div className="space-y-2">
+              {[
+                { label: 'National Days', key: 'facts_national_days_count', max: 12 },
+                { label: 'On This Day', key: 'facts_on_this_day_count', max: 10 },
+                { label: 'Famous Birthdays', key: 'facts_birthdays_count', max: 10 },
+                { label: 'Fun Trivia', key: 'facts_trivia_count', max: 5 },
+              ].map(({ label, key, max }) => (
+                <div key={key} className="flex items-center justify-between gap-3">
+                  <label className="text-sm text-slate-400">{label}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={max}
+                    className="w-20 bg-slate-700 text-white text-sm rounded px-3 py-1.5"
+                    value={values[key]}
+                    onChange={e => set(key, Number(e.target.value))}
+                  />
+                </div>
+              ))}
+            </div>
           </section>
         </div>
 

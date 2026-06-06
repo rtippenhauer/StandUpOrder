@@ -16,15 +16,19 @@ function Section({ title, children, defaultOpen = false }) {
   )
 }
 
-export default function FactsPanel({ facts, onClose }) {
+export default function FactsPanel({ facts, settings, onClose }) {
+  const nationalDaysCount = settings?.facts_national_days_count ?? 8
+  const onThisDayCount = settings?.facts_on_this_day_count ?? 5
+  const birthdaysCount = settings?.facts_birthdays_count ?? 5
+  const triviaCount = settings?.facts_trivia_count ?? 3
   const today = new Date()
   const dateStr = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
 
   const sections = [
-    facts?.national_days?.length > 0,
-    facts?.on_this_day?.length > 0,
-    facts?.famous_birthdays?.length > 0,
-    facts?.fun_trivia?.length > 0,
+    facts?.national_days?.length > 0 && nationalDaysCount > 0,
+    facts?.on_this_day?.length > 0 && onThisDayCount > 0,
+    facts?.famous_birthdays?.length > 0 && birthdaysCount > 0,
+    facts?.fun_trivia?.length > 0 && triviaCount > 0,
   ].filter(Boolean).length
 
   if (sections === 0) return null
@@ -50,10 +54,10 @@ export default function FactsPanel({ facts, onClose }) {
 
       <div className={`grid ${gridCols} divide-x divide-slate-700`}>
         {/* National Days */}
-        {facts.national_days?.length > 0 && (
+        {facts.national_days?.length > 0 && nationalDaysCount > 0 && (
           <Section title="🎊 National Days" defaultOpen={true}>
             <div className="flex flex-wrap gap-1.5">
-              {facts.national_days.slice(0, 8).map((day, i) => {
+              {facts.national_days.slice(0, nationalDaysCount).map((day, i) => {
                 const name = typeof day === 'object' ? day.name : day
                 const url = typeof day === 'object' ? day.url : null
                 return url ? (
@@ -77,10 +81,10 @@ export default function FactsPanel({ facts, onClose }) {
         )}
 
         {/* On This Day */}
-        {facts.on_this_day?.length > 0 && (
+        {facts.on_this_day?.length > 0 && onThisDayCount > 0 && (
           <Section title="🕰️ On This Day" defaultOpen={true}>
             <ul className="space-y-1">
-              {facts.on_this_day.map((item, i) => (
+              {facts.on_this_day.slice(0, onThisDayCount).map((item, i) => (
                 <li key={i} className="text-xs text-slate-300">
                   <span className="text-slate-400 font-mono mr-1">{item.year}</span>
                   {item.event}
@@ -91,10 +95,10 @@ export default function FactsPanel({ facts, onClose }) {
         )}
 
         {/* Famous Birthdays */}
-        {facts.famous_birthdays?.length > 0 && (
+        {facts.famous_birthdays?.length > 0 && birthdaysCount > 0 && (
           <Section title="🎂 Famous Birthdays" defaultOpen={true}>
             <ul className="space-y-1">
-              {facts.famous_birthdays.map((b, i) => (
+              {facts.famous_birthdays.slice(0, birthdaysCount).map((b, i) => (
                 <li key={i} className="text-xs text-slate-300">
                   <span className="font-medium text-slate-100">{b.name}</span>
                   <span className="text-slate-400"> b.{b.birth_year} · {b.known_for}</span>
@@ -105,10 +109,10 @@ export default function FactsPanel({ facts, onClose }) {
         )}
 
         {/* Fun Trivia */}
-        {facts.fun_trivia?.length > 0 && (
+        {facts.fun_trivia?.length > 0 && triviaCount > 0 && (
           <Section title="🧠 Fun Trivia" defaultOpen={true}>
             <ul className="space-y-1.5">
-              {facts.fun_trivia.map((t, i) => (
+              {facts.fun_trivia.slice(0, triviaCount).map((t, i) => (
                 <li key={i} className="text-xs text-slate-300">💡 {t}</li>
               ))}
             </ul>
