@@ -108,7 +108,7 @@ export default function SettingsModal({ settings, themes, onClose, teamApi: api 
                 { label: 'National Days', key: 'facts_national_days_count', max: 12 },
                 { label: 'On This Day', key: 'facts_on_this_day_count', max: 10 },
                 { label: 'Famous Birthdays', key: 'facts_birthdays_count', max: 10 },
-                { label: 'Fun Trivia', key: 'facts_trivia_count', max: 5 },
+                { label: 'Fun Trivia', key: 'facts_trivia_count', max: 12 },
               ].map(({ label, key, max }) => (
                 <div key={key} className="flex items-center justify-between gap-3">
                   <label className="text-sm text-slate-400">{label}</label>

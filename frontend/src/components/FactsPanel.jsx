@@ -101,7 +101,8 @@ export default function FactsPanel({ facts, settings, onClose }) {
               {facts.famous_birthdays.slice(0, birthdaysCount).map((b, i) => (
                 <li key={i} className="text-xs text-slate-300">
                   <span className="font-medium text-slate-100">{b.name}</span>
-                  <span className="text-slate-400"> b.{b.birth_year} · {b.known_for}</span>
+                  {b.birth_year && <span className="text-slate-400"> b.{b.birth_year}</span>}
+                  {b.known_for && <span className="text-slate-400"> · {b.known_for}</span>}
                 </li>
               ))}
             </ul>

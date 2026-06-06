@@ -197,7 +197,7 @@ async def _fetch_wikipedia(today: date) -> dict:
         raw_events = data.get("events", [])
         random.shuffle(raw_events)
         on_this_day = []
-        for e in raw_events[:7]:
+        for e in raw_events[:10]:
             text = e.get("text", "").strip()
             year = e.get("year")
             if text and year is not None:
@@ -207,7 +207,8 @@ async def _fetch_wikipedia(today: date) -> dict:
         notable = [b for b in raw_births if b.get("pages")]
         random.shuffle(notable)
         famous_birthdays = []
-        for b in notable[:7]:
+        seen_names: set = set()
+        for b in notable[:10]:
             text = b.get("text", "").strip()
             year = b.get("year")
             pages = b.get("pages", [])
@@ -217,7 +218,13 @@ async def _fetch_wikipedia(today: date) -> dict:
                 known_for = _truncate(desc, 60) if desc else ""
             name = text.split(",")[0].strip() if text else ""
             if name and year is not None:
+                seen_names.add(name)
                 famous_birthdays.append({"name": name, "birth_year": year, "known_for": known_for})
+
+        # Supplement with Birthday_today page if API returned fewer than 10
+        if len(famous_birthdays) < 10:
+            extras = await _fetch_birthday_today_page(today, seen_names)
+            famous_birthdays.extend(extras[:10 - len(famous_birthdays)])
 
         return {"on_this_day": on_this_day, "famous_birthdays": famous_birthdays}
 
@@ -226,40 +233,106 @@ async def _fetch_wikipedia(today: date) -> dict:
         return empty
 
 
+async def _fetch_birthday_today_page(today: date, seen_names: set) -> list:
+    """Scrape Wikipedia:Database_reports/Birthday_today for additional birthdays."""
+    url = "https://en.wikipedia.org/wiki/Wikipedia:Database_reports/Birthday_today"
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": "StandUpOrderGenerator/1.0"})
+        log.info("Birthday_today status: %d", resp.status_code)
+        if resp.status_code != 200:
+            return []
+
+        text = resp.text
+
+        # Find main content area
+        content_start = text.lower().find('id="mw-content-text"')
+        if content_start == -1:
+            content_start = 0
+        content = text[content_start:content_start + 100000]
+
+        year_re = re.compile(r'\b(1[0-9]{3}|20[0-2][0-9])\b')
+        link_re = re.compile(
+            r'<li[^>]*>.*?<a href="/wiki/([^":#][^"]*)"[^>]*title="([^"]+)"[^>]*>([^<]{2,60})</a>(.*?)</li>',
+            re.IGNORECASE | re.DOTALL,
+        )
+
+        skip_prefixes = ('Wikipedia:', 'Help:', 'File:', 'Template:', 'Category:', 'Special:', 'Portal:', 'Talk:')
+
+        birthdays = []
+        for m in link_re.finditer(content):
+            article = m.group(1).replace('_', ' ')
+            name = m.group(3).strip()
+            tail = m.group(4)
+
+            if any(article.startswith(p) for p in skip_prefixes):
+                continue
+            if name in seen_names or len(name) < 3:
+                continue
+
+            years = year_re.findall(tail)
+            birth_year = int(years[0]) if years else None
+
+            seen_names.add(name)
+            birthdays.append({"name": name, "birth_year": birth_year, "known_for": ""})
+            if len(birthdays) >= 20:
+                break
+
+        random.shuffle(birthdays)
+        log.info("Birthday_today extras: %d", len(birthdays))
+        return birthdays
+
+    except Exception as e:
+        log.warning("Birthday_today page fetch failed: %s", e)
+        return []
+
+
 async def _fetch_numbers_trivia(today: date) -> list:
-    """numbersapi.com — free, no key. Falls back to Open Trivia DB."""
+    """numbersapi.com (date + random trivia) combined with Open Trivia DB."""
+    trivia: list = []
+
+    # Date fact for today
     try:
         url = f"http://numbersapi.com/{today.month}/{today.day}/date"
         async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
             resp = await client.get(url, headers={"Accept": "text/plain"})
-        log.info("Numbers API status: %d", resp.status_code)
+        log.info("Numbers API (date) status: %d", resp.status_code)
         if resp.status_code == 200 and resp.text.strip():
             fact = resp.text.strip()
             if "is a number" not in fact and len(fact) > 20:
-                return [fact]
+                trivia.append(fact)
     except Exception as e:
-        log.warning("Numbers API failed: %s", e)
+        log.warning("Numbers API (date) failed: %s", e)
 
-    # Fallback: Open Trivia DB
+    # Random trivia facts from numbersapi
     try:
-        url = "https://opentdb.com/api.php?amount=3&type=multiple&difficulty=easy&category=9"
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+            resp = await client.get("http://numbersapi.com/random/trivia", headers={"Accept": "text/plain"})
+        if resp.status_code == 200 and resp.text.strip():
+            fact = resp.text.strip()
+            if "is a number" not in fact and len(fact) > 20:
+                trivia.append(fact)
+    except Exception as e:
+        log.warning("Numbers API (trivia) failed: %s", e)
+
+    # Open Trivia DB — always call, not just as fallback
+    try:
+        url = "https://opentdb.com/api.php?amount=10&type=multiple"
         async with httpx.AsyncClient(timeout=8) as client:
             resp = await client.get(url)
         log.info("OpenTDB status: %d", resp.status_code)
         if resp.status_code == 200:
             data = resp.json()
-            trivia = []
-            for r in data.get("results", [])[:3]:
+            for r in data.get("results", []):
                 q = _strip_tags(r.get("question", "")).strip()
                 a = _strip_tags(r.get("correct_answer", "")).strip()
                 if q and a:
                     trivia.append(f"{q} — {a}")
-            if trivia:
-                return trivia
     except Exception as e:
         log.warning("OpenTDB failed: %s", e)
 
-    return []
+    log.info("Trivia total: %d items", len(trivia))
+    return trivia
 
 
 def _static_fallback(today: date) -> dict:
