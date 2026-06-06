@@ -29,3 +29,7 @@ class SettingsUpdate(BaseModel):
     timer_enabled: Optional[bool] = None
     theme: Optional[str] = None
     holiday_lead_days: Optional[int] = None
+    facts_national_days_count: Optional[int] = None
+    facts_on_this_day_count: Optional[int] = None
+    facts_birthdays_count: Optional[int] = None
+    facts_trivia_count: Optional[int] = None

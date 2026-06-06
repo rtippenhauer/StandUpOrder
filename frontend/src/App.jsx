@@ -347,6 +347,7 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
     setShowSettings(false)
     const { s, p, pg } = await reloadData()
     doShuffle(activePodId, pg, p, s, removedNames)
+    api.getFacts(sessionDate).then(setFacts).catch(() => {})
   }
 
   // ── Derived ───────────────────────────────────────────────────────────
