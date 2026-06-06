@@ -30,7 +30,7 @@
 
   <Config Name="Google Client Secret" Target="GOOGLE_CLIENT_SECRET" Default="" Mode="" Description="OAuth 2.0 Client Secret from Google Cloud Console. Required for authentication." Type="Variable" Display="always" Required="true" Mask="true"></Config>
 
-  <Config Name="Base URL" Target="BASE_URL" Default="http://localhost:8080" Mode="" Description="Public-facing URL of the app (no trailing slash). Used for Google OAuth redirect. Example: https://standup.mydomain.com" Type="Variable" Display="always" Required="true" Mask="false">http://localhost:8080</Config>
+  <Config Name="Base URL" Target="BASE_URL" Default="https://standup-stage.rtippenhauer.com/team/ndt" Mode="" Description="Public-facing URL of the app (no trailing slash). Used for Google OAuth redirect. Example: https://standup.mydomain.com" Type="Variable" Display="always" Required="true" Mask="false">https://standup-stage.rtippenhauer.com/team/ndt</Config>
 
   <Config Name="Super Admin Email" Target="SUPER_ADMIN_EMAIL" Default="" Mode="" Description="Gmail address of the super admin (you). Can create teams and manage all." Type="Variable" Display="always" Required="true" Mask="false"></Config>
 
