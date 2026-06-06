@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -356,7 +357,7 @@ def _static_fallback(today: date) -> dict:
 
 
 def _strip_tags(text: str) -> str:
-    return re.sub(r"<[^>]+>", "", text).strip()
+    return html.unescape(re.sub(r"<[^>]+>", "", text)).strip()
 
 
 def _truncate(text: str, limit: int) -> str:
