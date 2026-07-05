@@ -20,6 +20,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "facts_on_this_day_count": 5,
     "facts_birthdays_count": 5,
     "facts_trivia_count": 5,
+    "show_announcements": True,
+    "show_questions": True,
 }
 
 

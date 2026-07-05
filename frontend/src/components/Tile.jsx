@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
 export default function Tile({ tile, timerMinutes, timerEnabled, onRemove, onSendToBottom, isLast }) {
-  const { name, color, position, isActive, isOnDeck } = tile
+  const { name, color, position, isActive, isOnDeck, isVirtual } = tile
 
   // Timer
   const [secondsLeft, setSecondsLeft] = useState(null)
@@ -55,8 +55,8 @@ export default function Tile({ tile, timerMinutes, timerEnabled, onRemove, onSen
         ✕
       </button>
 
-      {/* Send to bottom button — hidden when already last */}
-      {!isLast && (
+      {/* Send to bottom button — hidden when already last or virtual */}
+      {!isLast && !isVirtual && (
         <button
           onClick={() => onSendToBottom(name)}
           className="absolute top-1.5 right-9 w-6 h-6 rounded-full bg-black/30 hover:bg-black/60 text-white/70 hover:text-white text-xs flex items-center justify-center transition-colors"

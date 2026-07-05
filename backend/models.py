@@ -33,3 +33,5 @@ class SettingsUpdate(BaseModel):
     facts_on_this_day_count: Optional[int] = None
     facts_birthdays_count: Optional[int] = None
     facts_trivia_count: Optional[int] = None
+    show_announcements: Optional[bool] = None
+    show_questions: Optional[bool] = None

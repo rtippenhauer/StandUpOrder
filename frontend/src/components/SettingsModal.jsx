@@ -12,6 +12,8 @@ export default function SettingsModal({ settings, themes, onClose, teamApi: api 
     facts_on_this_day_count: settings?.facts_on_this_day_count ?? 5,
     facts_birthdays_count: settings?.facts_birthdays_count ?? 5,
     facts_trivia_count: settings?.facts_trivia_count ?? 3,
+    show_announcements: settings?.show_announcements ?? true,
+    show_questions: settings?.show_questions ?? true,
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
@@ -98,6 +100,31 @@ export default function SettingsModal({ settings, themes, onClose, teamApi: api 
                 />
               </div>
             )}
+          </section>
+
+          {/* Session Structure */}
+          <section>
+            <h3 className="text-sm font-semibold text-slate-300 mb-3">Session Structure</h3>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-blue-500"
+                  checked={values.show_announcements}
+                  onChange={e => set('show_announcements', e.target.checked)}
+                />
+                <span className="text-sm text-slate-200">Show <strong>Announcements</strong> slot at start</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-blue-500"
+                  checked={values.show_questions}
+                  onChange={e => set('show_questions', e.target.checked)}
+                />
+                <span className="text-sm text-slate-200">Show <strong>Questions?</strong> slot at end</span>
+              </label>
+            </div>
           </section>
 
           {/* Daily Facts Counts */}

@@ -16,6 +16,11 @@ import TeamSelectorPage from './components/TeamSelectorPage.jsx'
 import InviteAcceptPage from './components/InviteAcceptPage.jsx'
 import SuperAdminPanel from './components/SuperAdminPanel.jsx'
 
+const ANNOUNCEMENTS_NAME = 'Announcements'
+const QUESTIONS_NAME = 'Questions?'
+const ANNOUNCEMENTS_COLOR = '#7c3aed'  // violet
+const QUESTIONS_COLOR = '#0f766e'      // teal
+
 function shuffle(arr) {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -243,7 +248,7 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
       showSettings, showPodSelector, showScreenshot, showAddBack, showTimeOff, showCalendar])
 
   // ── Core shuffle ──────────────────────────────────────────────────────
-  function doShuffle(podId = activePodId, pg = people, p = pods, s = settings, excluded = removedNames) {
+  function doShuffle(podId = activePodId, pg = people, p = pods, s = settings, excluded = removedNames, forceVirtuals = []) {
     const members = Object.entries(pg)
       .filter(([, podIds]) => podIds.includes(podId))
       .map(([name]) => name)
@@ -251,7 +256,14 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
     const shuffled = shuffle(members)
     const theme = resolveTheme(s?.theme ?? 'auto', s?.holiday_lead_days ?? 20)
     const colored = assignColors(shuffled, theme.colors)
-    setSessionOrder(colored.map(({ name, color }) => ({ name, color })))
+    const order = colored.map(({ name, color }) => ({ name, color }))
+    if (((s?.show_questions ?? true) || forceVirtuals.includes(QUESTIONS_NAME)) && !excluded.has(QUESTIONS_NAME)) {
+      order.push({ name: QUESTIONS_NAME, color: QUESTIONS_COLOR, isVirtual: true })
+    }
+    if (((s?.show_announcements ?? true) || forceVirtuals.includes(ANNOUNCEMENTS_NAME)) && !excluded.has(ANNOUNCEMENTS_NAME)) {
+      order.unshift({ name: ANNOUNCEMENTS_NAME, color: ANNOUNCEMENTS_COLOR, isVirtual: true })
+    }
+    setSessionOrder(order)
     setCurrentSpeakerIdx(-1)
   }
 
@@ -276,14 +288,20 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
   function sendToBottom(name) {
     setSessionOrder(prev => {
       const idx = prev.findIndex(m => m.name === name)
-      if (idx === -1 || idx === prev.length - 1) return prev
+      if (idx === -1) return prev
+      const lastIsQuestions = prev[prev.length - 1]?.name === QUESTIONS_NAME
+      const bottomIdx = lastIsQuestions ? prev.length - 2 : prev.length - 1
+      if (idx === bottomIdx) return prev
       const next = [...prev]
       const [moved] = next.splice(idx, 1)
-      next.push(moved)
-      // If this person was active or on-deck, adjust speaker index
+      if (lastIsQuestions) {
+        next.splice(next.length - 1, 0, moved)
+      } else {
+        next.push(moved)
+      }
       setCurrentSpeakerIdx(ci => {
-        if (ci === idx) return ci  // keep highlighting them even at new position
-        if (ci > idx) return ci - 1  // shift down since item moved out from above
+        if (ci === idx) return ci
+        if (ci > idx) return ci - 1
         return ci
       })
       return next
@@ -291,10 +309,26 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
   }
 
   function restoreMembers(names) {
+    const virtualSet = new Set([ANNOUNCEMENTS_NAME, QUESTIONS_NAME])
+    const virtualsToAdd = names.filter(n => virtualSet.has(n))
+    const regularToAdd = names.filter(n => !virtualSet.has(n))
     const newRemoved = new Set(removedNames)
     names.forEach(n => newRemoved.delete(n))
     setRemovedNames(newRemoved)
-    doShuffle(activePodId, people, pods, settings, newRemoved)
+    if (regularToAdd.length > 0) {
+      doShuffle(activePodId, people, pods, settings, newRemoved, virtualsToAdd)
+    } else {
+      setSessionOrder(prev => {
+        let order = [...prev]
+        if (virtualsToAdd.includes(QUESTIONS_NAME) && !order.some(m => m.name === QUESTIONS_NAME)) {
+          order.push({ name: QUESTIONS_NAME, color: QUESTIONS_COLOR, isVirtual: true })
+        }
+        if (virtualsToAdd.includes(ANNOUNCEMENTS_NAME) && !order.some(m => m.name === ANNOUNCEMENTS_NAME)) {
+          order.unshift({ name: ANNOUNCEMENTS_NAME, color: ANNOUNCEMENTS_COLOR, isVirtual: true })
+        }
+        return order
+      })
+    }
   }
 
   function advanceSpeaker() {
@@ -442,7 +476,12 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
       </footer>
 
       {showPodSelector && <PodSelector pods={pods} onSelect={(id) => selectPod(id)} onClose={() => setShowPodSelector(false)} />}
-      {showAddBack && <AddBackModal removedNames={[...removedNames]} onRestore={restoreMembers} onClose={() => setShowAddBack(false)} />}
+      {showAddBack && <AddBackModal removedNames={(() => {
+        const list = [...removedNames]
+        if (!sessionOrder.some(m => m.name === ANNOUNCEMENTS_NAME) && !list.includes(ANNOUNCEMENTS_NAME)) list.push(ANNOUNCEMENTS_NAME)
+        if (!sessionOrder.some(m => m.name === QUESTIONS_NAME) && !list.includes(QUESTIONS_NAME)) list.push(QUESTIONS_NAME)
+        return list
+      })()} onRestore={restoreMembers} onClose={() => setShowAddBack(false)} />}
       {showScreenshot && <ScreenshotModal tiles={tilesWithPosition} podName={activePodName} sessionDate={sessionDate} facts={facts} holidayName={themeInfo?.holiday} themeColors={themeInfo?.colors} onClose={() => setShowScreenshot(false)} />}
 
       {canManage && showPodManager && <PodManager pods={pods} people={people} onClose={onPodManagerClose} teamApi={api} />}
