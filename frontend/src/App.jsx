@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal.jsx'
 import ScreenshotModal from './components/ScreenshotModal.jsx'
 import MenuBar from './components/MenuBar.jsx'
 import AddBackModal from './components/AddBackModal.jsx'
+import AbsenceBar from './components/AbsenceBar.jsx'
 import TimeOffModal from './components/TimeOffModal.jsx'
 import TimeOffCalendar from './components/TimeOffCalendar.jsx'
 import TeamSelectorPage from './components/TeamSelectorPage.jsx'
@@ -152,6 +153,7 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
   // Session state
   const [sessionOrder, setSessionOrder] = useState([])
   const [removedNames, setRemovedNames] = useState(new Set())
+  const [oooNames, setOooNames] = useState(new Set())  // out of office per time-off schedule
   const [currentSpeakerIdx, setCurrentSpeakerIdx] = useState(-1)
   const [sessionDate, setSessionDate] = useState(todayISO())
 
@@ -196,6 +198,7 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
           const { out } = await api.timeoff.getToday()
           if (out?.length) autoRemoved = new Set(out)
         } catch (_) {}
+        setOooNames(autoRemoved)
 
         if (s.default_pod && p[s.default_pod]) {
           selectPod(s.default_pod, pg, p, s, autoRemoved)
@@ -223,6 +226,7 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
         const schedule = await api.timeoff.get()
         const out = schedule[sessionDate] || []
         const newRemoved = new Set(out)
+        setOooNames(new Set(out))
         setRemovedNames(newRemoved)
         doShuffle(activePodId, people, pods, settings, newRemoved)
       } catch (_) {}
@@ -267,9 +271,9 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
     setCurrentSpeakerIdx(-1)
   }
 
-  function selectPod(podId, pg = people, p = pods, s = settings, excluded = new Set()) {
+  function selectPod(podId, pg = people, p = pods, s = settings, excluded = oooNames) {
     setActivePodId(podId)
-    setRemovedNames(new Set())
+    setRemovedNames(new Set(excluded))
     doShuffle(podId, pg, p, s, excluded)
     setShowPodSelector(false)
   }
@@ -315,11 +319,19 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
     const newRemoved = new Set(removedNames)
     names.forEach(n => newRemoved.delete(n))
     setRemovedNames(newRemoved)
-    if (regularToAdd.length > 0) {
+    if (regularToAdd.length > 0 && currentSpeakerIdx === -1) {
       doShuffle(activePodId, people, pods, settings, newRemoved, virtualsToAdd)
     } else {
       setSessionOrder(prev => {
         let order = [...prev]
+        // Standup in progress: add people at the end (before Questions) without reshuffling
+        const toAppend = regularToAdd.filter(n => !order.some(m => m.name === n))
+        if (toAppend.length > 0) {
+          const theme = resolveTheme(settings?.theme ?? 'auto', settings?.holiday_lead_days ?? 20)
+          const added = assignColors(toAppend, theme.colors)
+          const qIdx = order.findIndex(m => m.name === QUESTIONS_NAME)
+          order.splice(qIdx === -1 ? order.length : qIdx, 0, ...added)
+        }
         if (virtualsToAdd.includes(QUESTIONS_NAME) && !order.some(m => m.name === QUESTIONS_NAME)) {
           order.push({ name: QUESTIONS_NAME, color: QUESTIONS_COLOR, isVirtual: true })
         }
@@ -367,7 +379,7 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
     const { s, p, pg } = await reloadData()
     if (activePodId && !p[activePodId]) {
       const next = Object.keys(p)[0]
-      if (next) selectPod(next, pg, p, s, new Set())
+      if (next) selectPod(next, pg, p, s)
     } else if (activePodId) doShuffle(activePodId, pg, p, s, removedNames)
   }
 
@@ -400,6 +412,10 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
   const roster = Object.keys(people)
   const isToday = sessionDate === todayISO()
   const teamName = teamInfo?.name ?? slug
+  const podMembers = new Set(Object.entries(people).filter(([, ids]) => ids.includes(activePodId)).map(([n]) => n))
+  const virtualNames = new Set([ANNOUNCEMENTS_NAME, QUESTIONS_NAME])
+  const absentOoo = [...removedNames].filter(n => oooNames.has(n) && podMembers.has(n)).sort()
+  const absentRemoved = [...removedNames].filter(n => !oooNames.has(n) && (podMembers.has(n) || virtualNames.has(n))).sort()
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-900">
@@ -440,6 +456,8 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
       {showFactsPanel && facts && (
         <FactsPanel facts={facts} settings={settings} onClose={() => setShowFactsPanel(false)} />
       )}
+
+      <AbsenceBar outOfOffice={absentOoo} removed={absentRemoved} onRestore={restoreMembers} />
 
       <main className="flex-1 p-4">
         {sessionOrder.length === 0 && removedNames.size === 0 ? (
