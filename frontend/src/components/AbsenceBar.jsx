@@ -37,10 +37,15 @@ function Group({ label, names, tone, onRestore }) {
   )
 }
 
-export default function AbsenceBar({ outOfOffice, removed, onRestore }) {
-  if (outOfOffice.length === 0 && removed.length === 0) return null
+export default function AbsenceBar({ outOfOffice, removed, expected, total, onRestore }) {
+  if (total === 0 && outOfOffice.length === 0 && removed.length === 0) return null
   return (
-    <div className="mx-4 mt-3 px-4 py-2.5 bg-slate-800/70 border border-slate-700 rounded-xl flex flex-wrap gap-x-8 gap-y-2">
+    <div className="mx-4 mt-3 px-4 py-2.5 bg-slate-800/70 border border-slate-700 rounded-xl flex flex-wrap items-center gap-x-8 gap-y-2">
+      <div className="flex items-center gap-2" title="People in today's speaking order">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">👥 Expected</span>
+        <span className="text-lg font-bold text-white">{expected}</span>
+        <span className="text-sm text-slate-400">of {total}</span>
+      </div>
       <Group label="🌴 Out of Office" names={outOfOffice} tone="ooo" onRestore={onRestore} />
       <Group label="✕ Removed" names={removed} tone="removed" onRestore={onRestore} />
     </div>

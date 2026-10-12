@@ -457,7 +457,13 @@ function TeamApp({ slug, authUser, onLogout, onLoginRedirect, onNavigate }) {
         <FactsPanel facts={facts} settings={settings} onClose={() => setShowFactsPanel(false)} />
       )}
 
-      <AbsenceBar outOfOffice={absentOoo} removed={absentRemoved} onRestore={restoreMembers} />
+      <AbsenceBar
+        outOfOffice={absentOoo}
+        removed={absentRemoved}
+        expected={sessionOrder.filter(m => !m.isVirtual).length}
+        total={podMembers.size}
+        onRestore={restoreMembers}
+      />
 
       <main className="flex-1 p-4">
         {sessionOrder.length === 0 && removedNames.size === 0 ? (
